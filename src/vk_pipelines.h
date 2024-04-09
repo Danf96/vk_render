@@ -43,4 +43,6 @@ struct PipelineBuilder
 
 	void disable_depthtest();
 
+	void enable_depthtest(bool depthWriteEnable, VkCompareOp op);
+
 };
