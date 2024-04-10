@@ -100,6 +100,8 @@ public:
 	AllocatedImage _drawImage;
 	AllocatedImage _depthImage;
 	VkExtent2D _drawExtent;
+	float renderScale = 1.f;
+	bool resize_requested{};
 
 	VkFence _immFence;
 	VkCommandBuffer _immCommandBuffer;
@@ -158,6 +160,6 @@ private:
 	void init_mesh_pipeline();
 	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void destroy_buffer(const AllocatedBuffer& buffer);
-
+	void resize_swapchain();
 };
 
