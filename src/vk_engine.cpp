@@ -278,7 +278,7 @@ GPUMeshBuffers VulkanEngine::uploadMesh(std::span<uint32_t> indices, std::span<V
     const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
     const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
 
-    GPUMeshBuffers newSurface;
+    GPUMeshBuffers newSurface{};
 
     // create vertex buffer
     newSurface.vertexBuffer = create_buffer(vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | 
@@ -518,7 +518,7 @@ void VulkanEngine::init_default_data()
     rect_vertices[2].color = { 1,0, 0,1 };
     rect_vertices[3].color = { 0,1, 0,1 };
 
-    std::array<uint32_t, 6> rect_indices;
+    std::array<uint32_t, 6> rect_indices{};
 
     rect_indices[0] = 0;
     rect_indices[1] = 1;
@@ -629,9 +629,10 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 
     // meshes
     glm::mat4 view = glm::lookAtRH(glm::vec3(0, 0, -5), glm::vec3(0, 0, 0), glm::vec3(0, -1, 0));
+
     // camera projection
     glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(45.f), static_cast<float>(_drawExtent.width) / static_cast<float>(_drawExtent.height), 0.1f, 1000.f);
-    projection[1][1] = -1;
+    projection[1][1] *= -1;
 
     push_constants.worldMatrix = projection * view;
     push_constants.vertexBuffer = testMeshes[2]->meshBuffers.vertexBufferAddress;
@@ -749,7 +750,7 @@ void VulkanEngine::init_background_pipelines()
     computePipelineCreateInfo.layout = _gradientPipelineLayout;
     computePipelineCreateInfo.stage = stageInfo;
 
-    ComputeEffect gradient;
+    ComputeEffect gradient{};
     gradient.layout = _gradientPipelineLayout;
     gradient.name = "gradient";
     gradient.data = {};
@@ -945,7 +946,11 @@ void VulkanEngine::init_mesh_pipeline()
     //no multisampling
     pipelineBuilder.set_multisampling_none();
     //no blending
+#if 0
     pipelineBuilder.disable_blending();
+#else
+    pipelineBuilder.enable_blending_additive();
+#endif
 
     pipelineBuilder.enable_depthtest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
@@ -977,7 +982,7 @@ AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags
     VmaAllocationCreateInfo vmaAllocInfo{};
     vmaAllocInfo.usage = memoryUsage;
     vmaAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    AllocatedBuffer newBuffer;
+    AllocatedBuffer newBuffer{};
 
     VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaAllocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
 

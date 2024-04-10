@@ -45,4 +45,7 @@ struct PipelineBuilder
 
 	void enable_depthtest(bool depthWriteEnable, VkCompareOp op);
 
+	void enable_blending_additive();
+
+	void enable_blending_alphablend();
 };
