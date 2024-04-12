@@ -30,13 +30,16 @@ struct FrameData
 {
 	VkCommandPool _commandPool;
 	VkCommandBuffer _mainCommandBuffer;
+
 	VkSemaphore _swapchainSemaphore;
 	VkSemaphore _renderSemaphore;
 	VkFence _renderFence;
+
 	DeletionQueue _deletionQueue;
+	DescriptorAllocatorGrowable _frameDescriptors;
 };
 
-constexpr uint32_t FRAME_OVERLAP = 2;
+constexpr static uint32_t FRAME_OVERLAP = 2;
 
 struct ComputePushConstants
 {
@@ -117,9 +120,20 @@ public:
 	VkPipelineLayout _meshPipelineLayout;
 	VkPipeline _meshPipeline;
 
+	// mesh data
 	GPUMeshBuffers rectangle;
-
 	std::vector<std::shared_ptr<MeshAsset>> testMeshes;
+	GPUSceneData sceneData;
+	VkDescriptorSetLayout _gpuSceneDataDescriptorLayout;
+
+	// texture data
+	AllocatedImage _whiteImage;
+	AllocatedImage _blackImage;
+	AllocatedImage _grayImage;
+	AllocatedImage _errorCheckerboardImage;
+	VkSampler _defaultSamplerLinear;
+	VkSampler _defaultSamplerNearest;
+	VkDescriptorSetLayout _singleImageDescriptorLayout;
 
 	static VulkanEngine& Get();
 
@@ -139,6 +153,9 @@ public:
 
 	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
+	AllocatedImage create_image(VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+	AllocatedImage create_image(void* data, VkExtent3D size, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+	void destroy_image(const AllocatedImage& img);
 
 private:
 

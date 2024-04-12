@@ -2,13 +2,14 @@ find_package(Vulkan REQUIRED)
 
 add_library(vkbootstrap STATIC)
 add_library(glm INTERFACE)
-add_library(vma INTERFACE)
+
 
 add_library(stb_image INTERFACE)
 
 add_subdirectory(fastgltf)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 add_subdirectory(SDL EXCLUDE_FROM_ALL)
+add_subdirectory(vma)
 
 target_sources(vkbootstrap PRIVATE 
   vkbootstrap/VkBootstrap.h
@@ -18,8 +19,7 @@ target_sources(vkbootstrap PRIVATE
 target_include_directories(vkbootstrap PUBLIC vkbootstrap)
 target_link_libraries(vkbootstrap PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_DL_LIBS}>)
 
-#both vma and glm and header only libs so we only need the include path
-target_include_directories(vma INTERFACE vma)
+
 
 target_include_directories(glm INTERFACE glm)
 
