@@ -58,7 +58,7 @@ void PipelineBuilder::clear()
     _shaderStages.clear();
 }
 
-VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
+VkPipeline PipelineBuilder::build_pipeline(VkDevice device, std::string_view name)
 {
     // make viewport state from our stored viewport and scissor (only one of each supported currently)
     VkPipelineViewportStateCreateInfo viewportState{};
@@ -105,7 +105,7 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
     // handle graphics pipeline creation manually rather than VK_CHECK
     VkPipeline newPipeline;
     if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &newPipeline) != VK_SUCCESS) {
-        fmt::println("Failed to create graphics pipeline");
+        fmt::println("Failed to create graphics pipeline for {}", name);
         return VK_NULL_HANDLE;
     }
     else 

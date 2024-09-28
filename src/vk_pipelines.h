@@ -10,6 +10,8 @@ struct PipelineBuilder
 {
 	std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
 
+	std::string _pipelineName;
+
 	VkPipelineInputAssemblyStateCreateInfo _inputAssembly;
 	VkPipelineRasterizationStateCreateInfo _rasterizer;
 	VkPipelineColorBlendAttachmentState _colorBlendAttachment;
@@ -23,7 +25,7 @@ struct PipelineBuilder
 
 	void clear();
 
-	VkPipeline build_pipeline(VkDevice device);
+	VkPipeline build_pipeline(VkDevice device, std::string_view name);
 
 	void set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader);
 
