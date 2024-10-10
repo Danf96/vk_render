@@ -1,4 +1,5 @@
 /build
 /bin
-/*.spv
+/shaders/*.spv
 /assets
+things to do.txt

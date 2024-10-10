@@ -256,6 +256,20 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
                     });
             }
 
+            // find min/max bounds of vertices
+            glm::vec3 min_pos = vertices[initial_vtx].position;
+            glm::vec3 max_pos = vertices[initial_vtx].position;
+            for ( size_t i = initial_vtx; i < vertices.size(); ++i )
+            {
+                min_pos = glm::min(min_pos, vertices[i].position);
+                max_pos = glm::max(max_pos, vertices[i].position);
+            }
+
+            // calculate origin and extends from min/max, use extent length for radius
+            newSurface.bounds.origin = (max_pos + min_pos) / 2.f;
+            newSurface.bounds.extents = (max_pos - min_pos) / 2.f;
+            newSurface.bounds.sphereRadius = glm::length(newSurface.bounds.extents);
+
             if (p.materialIndex.has_value())
             {
                 newSurface.material = materials[p.materialIndex.value()];
@@ -469,7 +483,7 @@ std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &
                                     .height = static_cast<uint32_t>(height),
                                     .depth = 1
                                 };
-                                newImage = engine->create_image(data, imageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                newImage = engine->create_image(data, imageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
                                 stbi_image_free(data);
                             }
                         }

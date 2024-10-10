@@ -9,6 +9,8 @@ public:
 	float pitch{ 0.f };
 	float yaw{ 0.f };
 
+	bool buttonDown = false;
+
 	glm::mat4 getViewMatrix();
 	glm::mat4 getRotationMatrix();
 

@@ -35,6 +35,49 @@ constexpr bool bUseValidationLayers = true;
 
 VulkanEngine* loadedEngine = nullptr;
 
+bool is_visible(const RenderObject & obj, const glm::mat4 & viewProj)
+{
+    std::array<glm::vec3, 8> corners
+    {
+        glm::vec3 { 1, 1, 1 },
+        glm::vec3 { 1, 1, -1 },
+        glm::vec3 { 1, -1, 1 },
+        glm::vec3 { 1, -1, -1 },
+        glm::vec3 { -1, 1, 1 },
+        glm::vec3 { -1, 1, -1 },
+        glm::vec3 { -1, -1, 1 },
+        glm::vec3 { -1, -1, -1 },
+    };
+    glm::mat4 matrix = viewProj * obj.transform;
+    glm::vec3 min = { 1.5, 1.5, 1.5 };
+    glm::vec3 max = { -1.5, -1.5, -1.5 };
+
+    for ( auto &corner : corners)
+    {
+        // project each corner into clip space
+        glm::vec4 v = matrix * glm::vec4(obj.bounds.origin + (corner * obj.bounds.extents), 1.f);
+
+        // perspective correction
+        v.x = v.x / v.w;
+        v.y = v.y / v.w;
+        v.z = v.z / v.w;
+
+        min = glm::min(glm::vec3{ v.x, v.y, v.z }, min);
+        max = glm::max(glm::vec3{ v.x, v.y, v.z }, max);
+    }
+
+    // check the clip space box is within the view
+    if ( min.z > 1.f || max.z < 0.f || min.x > 1.f || max.x < -1.f || min.y > 1.f || max.y < -1.f )
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+
 void MeshNode::Draw(const glm::mat4 & topMatrix, DrawContext & ctx)
 {
     glm::mat4 nodeMatrix = topMatrix * worldTransform;
@@ -46,7 +89,7 @@ void MeshNode::Draw(const glm::mat4 & topMatrix, DrawContext & ctx)
         def.firstIndex = s.startIndex;
         def.indexBuffer = mesh->meshBuffers.indexBuffer.buffer;
         def.material = &s.material->data;
-
+        def.bounds = s.bounds;
         def.transform = nodeMatrix;
         def.vertexBufferAddress = mesh->meshBuffers.vertexBufferAddress;
 
@@ -505,12 +548,17 @@ AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D size, VkFormat 
 
         // copy the buffer into the image
         vkCmdCopyBufferToImage(cmd, uploadBuffer.buffer, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
-
-        vkutil::transition_image(cmd, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if ( mipmapped )
+        {
+            vkutil::generate_mipmaps(cmd, newImage.image, VkExtent2D{ newImage.imageExtent.width, newImage.imageExtent.height });
+        }
+        else
+        {
+            vkutil::transition_image(cmd, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
     });
 
     destroy_buffer(uploadBuffer);
-
     return newImage;
 }
 
@@ -897,22 +945,32 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     stats.drawcall_count = 0;
     stats.triangle_count = 0;
 
-    // set dynamic viewport and scissor
-    VkViewport viewport{};
-    viewport.x = 0;
-    viewport.y = 0;
-    viewport.width = static_cast<float>(_drawExtent.width);
-    viewport.height = static_cast<float>(_drawExtent.height);
-    viewport.minDepth = 0.f;
-    viewport.maxDepth = 1.f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    std::vector<uint32_t> opaque_draws;
+    opaque_draws.reserve(mainDrawContext.OpaqueSurfaces.size());
 
-    VkRect2D scissor{};
-    scissor.offset.x = 0;
-    scissor.offset.y = 0;
-    scissor.extent.width = _drawExtent.width;
-    scissor.extent.height = _drawExtent.height;
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
+    for ( uint32_t i = 0; i < mainDrawContext.OpaqueSurfaces.size(); ++i )
+    {
+        if ( is_visible(mainDrawContext.OpaqueSurfaces[i], sceneData.viewproj) )
+        {
+            opaque_draws.push_back(i);
+        }
+    }
+
+    // sort opaque surfaces by mat and mesh
+    std::sort(opaque_draws.begin(), opaque_draws.end(), [&](const auto &iA, const auto &iB) 
+        {
+            const RenderObject &A = mainDrawContext.OpaqueSurfaces[iA];
+            const RenderObject &B = mainDrawContext.OpaqueSurfaces[iB];
+            if ( A.material == B.material )
+            {
+                return A.indexBuffer < B.indexBuffer;
+            }
+            else
+            {
+                return A.material < B.material;
+            }
+        });
+
 
 
     // alloc new uniform buffer for scene data (skips staging step)
@@ -937,29 +995,68 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     writer.write_buffer(0, gpuSceneDataBuffer.buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.update_set(_device, globalDescriptor);
 
-    auto draw = [&](const RenderObject &draw)
+    MaterialPipeline *lastPipeline{};
+    MaterialInstance *lastMaterial{};
+    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+
+    auto draw = [&](const RenderObject &drawObj)
         {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 1, 1, &draw.material->materialSet, 0, nullptr);
+            if ( drawObj.material != lastMaterial )
+            {
+                lastMaterial = drawObj.material;
+                if ( drawObj.material->pipeline != lastPipeline )
+                {
+                    lastPipeline = drawObj.material->pipeline;
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, 
+                        drawObj.material->pipeline->pipeline);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, 
+                        drawObj.material->pipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
 
-            vkCmdBindIndexBuffer(cmd, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+                    // set dynamic viewport and scissor
+                    VkViewport viewport{};
+                    viewport.x = 0;
+                    viewport.y = 0;
+                    viewport.width = static_cast<float>(_drawExtent.width);
+                    viewport.height = static_cast<float>(_drawExtent.height);
+                    viewport.minDepth = 0.f;
+                    viewport.maxDepth = 1.f;
+                    vkCmdSetViewport(cmd, 0, 1, &viewport);
 
+                    VkRect2D scissor{};
+                    scissor.offset.x = 0;
+                    scissor.offset.y = 0;
+                    scissor.extent.width = _drawExtent.width;
+                    scissor.extent.height = _drawExtent.height;
+                    vkCmdSetScissor(cmd, 0, 1, &scissor);
+                }
+            }
+
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, 
+                drawObj.material->pipeline->layout, 1, 1, &drawObj.material->materialSet, 0, nullptr);
+
+            // rebind index buffer if needed
+            if ( drawObj.indexBuffer != lastIndexBuffer )
+            {
+                lastIndexBuffer = drawObj.indexBuffer;
+                vkCmdBindIndexBuffer(cmd, drawObj.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            }
+            
+            // calculate final mesh matrix
             GPUDrawPushConstants pushConstants;
-            pushConstants.vertexBuffer = draw.vertexBufferAddress;
-            pushConstants.worldMatrix = draw.transform;
+            pushConstants.vertexBuffer = drawObj.vertexBufferAddress;
+            pushConstants.worldMatrix = drawObj.transform;
 
-            vkCmdPushConstants(cmd, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+            vkCmdPushConstants(cmd, drawObj.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
 
-            vkCmdDrawIndexed(cmd, draw.indexCount, 1, draw.firstIndex, 0, 0);
+            vkCmdDrawIndexed(cmd, drawObj.indexCount, 1, drawObj.firstIndex, 0, 0);
 
             // add counters for triangles and draws
             stats.drawcall_count++;
-            stats.triangle_count += draw.indexCount / 3;
+            stats.triangle_count += drawObj.indexCount / 3;
         };
-    for ( auto &r : mainDrawContext.OpaqueSurfaces )
+    for ( auto &r : opaque_draws )
     {
-        draw(r);
+        draw(mainDrawContext.OpaqueSurfaces[r]);
     }
     for ( auto &r : mainDrawContext.TransparentSurfaces )
     {
