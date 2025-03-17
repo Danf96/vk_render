@@ -24,13 +24,6 @@ target_link_libraries(vkbootstrap PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_D
 
 target_include_directories(glm INTERFACE glm)
 
-#add_library(sdl2 INTERFACE)
-
-#target_include_directories(sdl2 INTERFACE $ENV{VULKAN_SDK}/Include/SDL2 )
-#target_link_directories(sdl2 INTERFACE $ENV{VULKAN_SDK}/Lib )
-
-#target_link_libraries(sdl2 INTERFACE SDL2 SDL2main)
-
 add_library(imgui STATIC)
 
 target_include_directories(imgui PUBLIC imgui)
@@ -43,10 +36,10 @@ target_sources(imgui PRIVATE
   imgui/imgui_draw.cpp
   imgui/imgui_widgets.cpp
   imgui/imgui_tables.cpp
-  imgui/imgui_impl_vulkan.cpp
-  imgui/imgui_impl_sdl2.cpp
+  imgui/backends/imgui_impl_vulkan.cpp
+  imgui/backends/imgui_impl_sdl3.cpp
   )
 
-target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2)
+target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL3::SDL3)
 
 target_include_directories(stb_image INTERFACE stb_image)

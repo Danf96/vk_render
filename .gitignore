@@ -2,4 +2,5 @@
 /bin
 /shaders/*.spv
 /assets
+/.cache
 things to do.txt
