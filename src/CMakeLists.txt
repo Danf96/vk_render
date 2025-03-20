@@ -26,7 +26,7 @@ target_include_directories(engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared)
 
-target_link_libraries(engine PUBLIC VulkanMemoryAllocator glm Vulkan::Vulkan fmt::fmt stb_image SDL3::SDL3 vkbootstrap imgui fastgltf::fastgltf)
+target_link_libraries(engine PUBLIC VulkanMemoryAllocator glm Vulkan::Vulkan fmt::fmt stb_image SDL3::SDL3 vk-bootstrap::vk-bootstrap imgui tinygltf)
 
 target_precompile_headers(engine PUBLIC <optional> <vector> <memory> <string> <vector> <unordered_map> <glm/mat4x4.hpp>  <glm/vec4.hpp> <vulkan/vulkan.h>)
 

@@ -3,7 +3,6 @@
 #include "vk_types.h"
 #include "vk_descriptors.h"
 #include <unordered_map>
-#include <filesystem>
 
 struct GLTFMaterial
 {

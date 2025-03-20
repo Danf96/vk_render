@@ -29,6 +29,7 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_vulkan.h"
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/transform.hpp"
 
 constexpr bool bUseValidationLayers = true;
@@ -151,8 +152,6 @@ void VulkanEngine::init()
 
     _window = SDL_CreateWindow(
         "Vulkan Engine",
-        SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED,
         _windowExtent.width,
         _windowExtent.height,
         window_flags);
@@ -178,7 +177,7 @@ void VulkanEngine::init()
     mainCamera.pitch = 0;
     mainCamera.yaw = 0;
 
-    std::string structurePath = {"..\\..\\assets\\structure.glb"};
+    std::string structurePath = {"../../assets/structure.glb"};
     auto structureFile = loadGltf(this, structurePath);
 
     assert(structureFile.has_value());
@@ -336,21 +335,20 @@ void VulkanEngine::run()
         // Handle events on queue
         while (SDL_PollEvent(&e) != 0) {
             // close the window when user alt-f4s or clicks the X button
-            if (e.type == SDL_QUIT) {
+            if (e.type == SDL_EVENT_QUIT) {
                 bQuit = true;
             } 
 
-            if (e.type == SDL_WINDOWEVENT) {
-                if (e.window.event == SDL_WINDOWEVENT_MINIMIZED) {
-                    stop_rendering = true;
-                }
-                if (e.window.event == SDL_WINDOWEVENT_RESTORED) {
-                    stop_rendering = false;
-                }
+            if (e.type == SDL_EVENT_WINDOW_MINIMIZED) {
+                stop_rendering = true;
             }
+            if (e.type == SDL_EVENT_WINDOW_RESTORED) {
+                stop_rendering = false;
+            }
+
             mainCamera.processSDLEvent(e);
             // sent SDL event to imgui for handling
-            ImGui_ImplSDL2_ProcessEvent(&e);
+            ImGui_ImplSDL3_ProcessEvent(&e);
         }
 
         // do not draw if we are minimized
@@ -367,7 +365,7 @@ void VulkanEngine::run()
 
         // imgui new frame
         ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplSDL2_NewFrame(_window);
+        ImGui_ImplSDL3_NewFrame();
 
         ImGui::NewFrame();
 
@@ -377,7 +375,7 @@ void VulkanEngine::run()
 
             ComputeEffect& selected = backgroundEffects[currentBackgroundEffect];
 
-            ImGui::Text("Selected effect: ", selected.name);
+            ImGui::Text("Selected effect: %s", selected.name);
 
             ImGui::SliderInt("Effect Index", &currentBackgroundEffect, 0, static_cast<int>(backgroundEffects.size() - 1));
 
@@ -583,7 +581,7 @@ void VulkanEngine::init_vulkan()
     _instance = vkb_inst.instance;
     _debug_messenger = vkb_inst.debug_messenger;
 
-    SDL_Vulkan_CreateSurface(_window, _instance, &_surface);
+    SDL_Vulkan_CreateSurface(_window, _instance, nullptr, &_surface);
 
     // vulkan 1.3 features
     VkPhysicalDeviceVulkan13Features features13{};
@@ -634,11 +632,10 @@ void VulkanEngine::init_swapchain()
     create_swapchain(_windowExtent.width, _windowExtent.height);
 
     // draw image (not drawing directly to swapchain)
-    SDL_DisplayMode dMode{};
-    SDL_GetCurrentDisplayMode(0, &dMode);
+    const SDL_DisplayMode *dMode = SDL_GetCurrentDisplayMode(0);
     VkExtent3D drawImageExtent{};
-    drawImageExtent.width = static_cast<uint32_t>(dMode.w);
-    drawImageExtent.height = static_cast<uint32_t>(dMode.h);
+    drawImageExtent.width = static_cast<uint32_t>(dMode->w);
+    drawImageExtent.height = static_cast<uint32_t>(dMode->h);
     drawImageExtent.depth = 1;
 
     // hardcode draw format to 32 bit float
@@ -1263,35 +1260,37 @@ void VulkanEngine::init_imgui()
     ImGui::CreateContext();
 
     // init imgui for sdl
-    ImGui_ImplSDL2_InitForVulkan(_window);
+    ImGui_ImplSDL3_InitForVulkan(_window);
 
     // init imgui for Vulkan
-    ImGui_ImplVulkan_InitInfo initInfo{};
-    initInfo.Instance = _instance;
-    initInfo.PhysicalDevice = _chosenGPU;
-    initInfo.Device = _device;
-    initInfo.Queue = _graphicsQueue;
-    initInfo.DescriptorPool = imguiPool;
-    initInfo.MinImageCount = 3;
-    initInfo.ImageCount = 3;
-    initInfo.UseDynamicRendering = true;
-    initInfo.ColorAttachmentFormat = _swapchainImageFormat;
+    ImGui_ImplVulkan_InitInfo initInfo{
+        .Instance = _instance,
+        .PhysicalDevice = _chosenGPU,
+        .Device = _device,
+        .Queue = _graphicsQueue,
+        .DescriptorPool = imguiPool,
+        .MinImageCount = 3,
+        .ImageCount = 3,
+        .UseDynamicRendering = true,
+    };
 
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
-    ImGui_ImplVulkan_Init(&initInfo, VK_NULL_HANDLE);
+    ImGui_ImplVulkan_Init(&initInfo);
 
     // upload imgui font textures
-    immediate_submit([&](VkCommandBuffer cmd) { ImGui_ImplVulkan_CreateFontsTexture(cmd); });
+    //immediate_submit([&](VkCommandBuffer cmd) { ImGui_ImplVulkan_CreateFontsTexture(cmd); });
+    ImGui_ImplVulkan_CreateFontsTexture();
 
     // clear font textures from cpu
-    ImGui_ImplVulkan_DestroyFontUploadObjects();
+    //ImGui_ImplVulkan_DestroyFontUploadObjects();
 
     // add to deletion queue imgui created structures
-    _mainDeletionQueue.push_function([=]() 
+    _mainDeletionQueue.push_function([=, this]() 
         {
             vkDestroyDescriptorPool(_device, imguiPool, nullptr);
             ImGui_ImplVulkan_Shutdown();
+            ImGui_ImplSDL3_Shutdown();
         });
 }
 

@@ -1,74 +1,57 @@
-﻿#include "stb_image.h"
-#include <iostream>
+﻿#include <optional>
 #include <vk_loader.h>
+#include <vulkan/vulkan_core.h>
 
 #include "vk_engine.h"
-#include "vk_initializers.h"
 #include "vk_types.h"
-#include "glm/gtx/quaternion.hpp"
 
-#include "fastgltf/glm_element_traits.hpp"
-#include "fastgltf/parser.hpp"
-#include "fastgltf/tools.hpp"
-#include "fastgltf/util.hpp"
-
-#include "stb_image.h"
+#define TINYGLTF_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "tiny_gltf.h"
 
 #include <cstdio>
 
-VkFilter extract_filter(fastgltf::Filter filter);
-VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter);
-std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image);
+
+VkFilter extract_filter(int32_t filterMode);
+VkSamplerMipmapMode extract_mipmap_mode(int32_t filterMode);
+VkSamplerAddressMode extract_wrap_mode(int32_t wrapMode);
+
+std::optional<AllocatedImage> load_image(VulkanEngine *engine, tinygltf::Asset &asset, tinygltf::Image &image);
 
 std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::string_view filePath)
 {
     fmt::println("Loading GLTF: {}", filePath);
 
-    std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
+    tinygltf::Model model;
+    tinygltf::TinyGLTF loader;
+
+    std::string error;
+    std::string warning;
+
+    std::filesystem::path fPath{filePath};
+    bool binary{false};
+    if (fPath.extension() == "glb") {
+      binary = true;
+    }
+
+    bool fileLoaded =
+        binary
+            ? loader.LoadBinaryFromFile(&model, &error, &warning, fPath.c_str())
+            : loader.LoadASCIIFromFile(&model, &error, &warning, fPath.c_str());
+
+	if(fileLoaded)
+	{
+
+	}
+	else
+	{
+        fmt::println(stderr, "Could not load gltf file: {}", fPath);
+        return std::nullopt;
+	}
+	std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
     scene->creator = engine;
     LoadedGLTF &file = *scene.get();
-
-    fastgltf::Parser parser{};
-    constexpr auto gltfOptions = fastgltf::Options::DontRequireValidAssetMember | fastgltf::Options::AllowDouble | fastgltf::Options::LoadGLBBuffers | fastgltf::Options::LoadExternalBuffers;
-
-    fastgltf::GltfDataBuffer data;
-    data.loadFromFile(filePath);
-
-    fastgltf::Asset gltf;
-
-    std::filesystem::path path = filePath;
-
-    auto type = fastgltf::determineGltfFileType(&data);
-    if (type == fastgltf::GltfType::glTF)
-    {
-        auto load = parser.loadGLTF(&data, path.parent_path(), gltfOptions);
-        if (load)
-        {
-            gltf = std::move(load.get());
-        }
-        else
-        {
-            fmt::println(stderr, "Failed to load glTF: {}", fastgltf::to_underlying(load.error()));
-        }
-    }
-    else if (type == fastgltf::GltfType::GLB)
-    {
-        auto load = parser.loadBinaryGLTF(&data, path.parent_path(), gltfOptions);
-        if (load)
-        {
-            gltf = std::move(load.get());
-        }
-        else
-        {
-            fmt::println(stderr, "Failed to load glTF: {}", fastgltf::to_underlying(load.error()));
-            return {};
-        }
-    }
-    else
-    {
-        fmt::println(stderr, "Failed to determine glTF container.");
-        return {};
-    }
 
     std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes =
     {
@@ -77,18 +60,17 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
         { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 }
     };
 
-    file.descriptorPool.init(engine->_device, static_cast<uint32_t>(gltf.materials.size()), sizes);
+    file.descriptorPool.init(engine->_device, static_cast<uint32_t>(model.materials.size()), sizes);
 
-    for (fastgltf::Sampler &sampler : gltf.samplers)
+    for (tinygltf::Sampler &sampler : model.samplers)
     {
         VkSamplerCreateInfo sample{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         sample.maxLod = VK_LOD_CLAMP_NONE;
         sample.minLod = 0;
+        sample.magFilter = extract_filter(sampler.magFilter);
+        sample.minFilter = extract_filter(sampler.minFilter);
 
-        sample.magFilter = extract_filter(sampler.magFilter.value_or(fastgltf::Filter::Nearest));
-        sample.minFilter = extract_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
-
-        sample.mipmapMode = extract_mipmap_mode(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
+        sample.mipmapMode = extract_mipmap_mode(sampler.minFilter);
 
         VkSampler newSampler;
         vkCreateSampler(engine->_device, &sample, nullptr, &newSampler);
@@ -101,9 +83,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
     std::vector<AllocatedImage> images;
     std::vector<std::shared_ptr<GLTFMaterial>> materials;
 
-    for (fastgltf::Image &image : gltf.images)
+    // go to Model::loadTextures in sascha's example
+    #if 1
+    for (auto &image : model.images)
     {
-        std::optional<AllocatedImage> img = load_image(engine, gltf, image);
+        std::optional<AllocatedImage> img = load_image(engine, model.asset, image);
         if ( img.has_value() )
         {
             images.push_back(*img);
@@ -115,8 +99,16 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
             fmt::println(stderr, "glTF failed to load texture {}", image.name);
         }
     }
+    #else
+    for (auto &texture : model.textures)
+    {
+        int source = texture.source;
+        tinygltf::Image image = model.images[source];
+        
+    }
+    #endif
 
-    file.materialDataBuffer = engine->create_buffer(sizeof(GLTFMetallic_Roughness::MaterialConstants) * gltf.materials.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    file.materialDataBuffer = engine->create_buffer(sizeof(GLTFMetallic_Roughness::MaterialConstants) * model.materials.size(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
     int data_index = 0;
     GLTFMetallic_Roughness::MaterialConstants *sceneMaterialConstants = reinterpret_cast<GLTFMetallic_Roughness::MaterialConstants *>(file.materialDataBuffer.info.pMappedData);
 
@@ -206,7 +198,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
 
             // load vertex positions
             {
-                fastgltf::Accessor &posAccessor = gltf.accessors[p.findAttribute("POSITION")->second];
+                fastgltf::Accessor &posAccessor = gltf.accessors[p.findAttribute("POSITION")->accessorIndex];
                 vertices.resize(vertices.size() + posAccessor.count);
 
                 fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, 
@@ -227,7 +219,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
             auto normals = p.findAttribute("NORMAL");
             if (normals != p.attributes.end())
             {
-                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second],
+                fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).accessorIndex],
                     [&](glm::vec3 v, size_t index) {
                         vertices[initial_vtx + index].normal = v;
                     });
@@ -237,7 +229,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
             auto uv = p.findAttribute("TEXCOORD_0");
             if (uv != p.attributes.end()) 
             {
-                fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second],
+                fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).accessorIndex],
                     [&](glm::vec2 v, size_t index)
                     {
                         vertices[initial_vtx + index].uv_x = v.x;
@@ -249,7 +241,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
             auto colors = p.findAttribute("COLOR_0");
             if (colors != p.attributes.end())
             {
-                fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colors).second],
+                fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colors).accessorIndex],
                     [&](glm::vec4 v, size_t index)
                     {
                         vertices[initial_vtx + index].color = v;
@@ -304,7 +296,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> loadGltf(VulkanEngine *engine, std::s
         std::visit(fastgltf::visitor{ [&](fastgltf::Node::TransformMatrix matrix) {
                 std::memcpy(&newNode->localTransform, matrix.data(), sizeof(matrix));
             },
-            [&](fastgltf::Node::TRS transform) {
+            [&](fastgltf::TRS transform) {
                 glm::vec3 tl(transform.translation[0], transform.translation[1], transform.translation[2]);
                 glm::quat rot(transform.rotation[3], transform.rotation[0], transform.rotation[1], transform.rotation[2]); // w, x, y, z
                 glm::vec3 sc(transform.scale[0], transform.scale[1], transform.scale[2]);
@@ -378,50 +370,52 @@ void LoadedGLTF::clearAll()
     }
 }
 
-VkFilter extract_filter(fastgltf::Filter filter)
+VkFilter extract_filter(int32_t filterMode)
 {
-    switch (filter)
-    {
-    case fastgltf::Filter::Nearest:
-        [[fallthrough]];
-    case fastgltf::Filter::NearestMipMapNearest:
-        [[fallthrough]];
-    case fastgltf::Filter::NearestMipMapLinear:
-        return VK_FILTER_NEAREST;
-    case fastgltf::Filter::Linear:
-        [[fallthrough]];
-    case fastgltf::Filter::LinearMipMapNearest:
-        [[fallthrough]];
-    case fastgltf::Filter::LinearMipMapLinear:
-        [[fallthrough]];
-    default:
-        return VK_FILTER_LINEAR;
-    }
+	switch(filterMode)
+	{
+	case -1:
+		[[fallthrough]];
+	case TINYGLTF_TEXTURE_FILTER_NEAREST:
+		[[fallthrough]];
+	case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST:
+		[[fallthrough]];
+	case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST:
+		return VK_FILTER_NEAREST;
+	case TINYGLTF_TEXTURE_FILTER_LINEAR:
+		[[fallthrough]];
+	case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR:
+		[[fallthrough]];
+	case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR:
+		return VK_FILTER_LINEAR;
+	}
+	fmt::println(stderr, "Unknown filter mode from sampler: {}", filterMode);
+    return VK_FILTER_NEAREST;
 }
 
-VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter)
+VkSamplerMipmapMode extract_mipmap_mode(int32_t filterMode)
 {
-    switch (filter) 
+    switch (filterMode) 
     {
-    case fastgltf::Filter::NearestMipMapNearest:
+    case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST
         [[fallthrough]];
-    case fastgltf::Filter::LinearMipMapNearest:
+    case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST:
         return VK_SAMPLER_MIPMAP_MODE_NEAREST;
-
-    case fastgltf::Filter::NearestMipMapLinear:
+    case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR:
         [[fallthrough]];
-    case fastgltf::Filter::LinearMipMapLinear:
+    case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR:
         [[fallthrough]];
     default:
         return VK_SAMPLER_MIPMAP_MODE_LINEAR;
     }
 }
 
-std::optional<AllocatedImage> load_image(VulkanEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image)
+std::optional<AllocatedImage> load_image(VulkanEngine *engine, tinygltf::Asset &asset, tinygltf::Image &image)
 {
     AllocatedImage newImage{};
     int width, height, nrChannels;
-
+    tinygltf::LoadImageData(&image, const int image_idx, std::string *err, std::string *warn, int req_width, int req_height, const unsigned char *bytes, int size, void *)
+    image.
     std::visit(
         fastgltf::visitor
         {

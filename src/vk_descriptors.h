@@ -2,6 +2,9 @@
 
 #include <vk_types.h>
 
+#include <deque>
+#include <span>
+
 struct DescriptorLayoutBuilder
 {
 	std::vector<VkDescriptorSetLayoutBinding> bindings;

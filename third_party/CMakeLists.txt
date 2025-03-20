@@ -1,24 +1,23 @@
 find_package(Vulkan REQUIRED)
 
-add_library(vkbootstrap STATIC)
 add_library(glm INTERFACE)
 
 
 add_library(stb_image INTERFACE)
 
-add_subdirectory(fastgltf)
+set(TINYGLTF_HEADER_ONLY ON CACHE INTERNAL "" FORCE)
+set(TINYGLTF_INSTALL OFF CACHE INTERNAL "" FORCE)
+add_subdirectory(tinygltf)
+
+target_include_directories(tinygltf INTERFACE tinygltf)
+
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 add_subdirectory(vma)
 
 find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared)
 
-target_sources(vkbootstrap PRIVATE 
-  vkbootstrap/VkBootstrap.h
-  vkbootstrap/VkBootstrap.cpp
-  )
+add_subdirectory(vk-bootstrap)
 
-target_include_directories(vkbootstrap PUBLIC vkbootstrap)
-target_link_libraries(vkbootstrap PUBLIC Vulkan::Vulkan $<$<BOOL:UNIX>:${CMAKE_DL_LIBS}>)
 
 
 
